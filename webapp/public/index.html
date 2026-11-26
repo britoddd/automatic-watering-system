@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garden</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+<style>
+  :root {
+    --bg: #f4f6f3; --card: #fff; --text: #1d2b1f; --muted: #6b776d; --line: #e2e7e1;
+    --accent: #2f8f4e; --water: #2a7fd4; --warn-bg: #fff4d6; --warn: #8a5a00;
+    --bad-bg: #fde4e1; --bad: #a3271b; --off: #8a918b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121613; --card: #1b211c; --text: #e4ebe5; --muted: #95a197; --line: #2c342d;
+      --accent: #4cbb6d; --water: #5aa6f0; --warn-bg: #3a2f12; --warn: #f2c14e;
+      --bad-bg: #3d1a16; --bad: #ff8a7a; --off: #6d756e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .badge { padding: 4px 10px; border-radius: 99px; font-size: .85rem; font-weight: 600; background: var(--line); color: var(--off); white-space: nowrap; }
+  .badge.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+  .alert { padding: 10px 14px; border-radius: 10px; margin-bottom: 10px; font-weight: 500; }
+  .alert.bad { background: var(--bad-bg); color: var(--bad); }
+  .alert.warn { background: var(--warn-bg); color: var(--warn); }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .wide { grid-column: 1 / -1; }
+  .big { font-size: 3rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big small { font-size: 1.2rem; color: var(--muted); font-weight: 500; }
+  .bar { height: 10px; background: var(--line); border-radius: 99px; margin: 14px 0 6px; position: relative; overflow: hidden; }
+  .bar > i { position: absolute; inset: 0 auto 0 0; background: var(--water); border-radius: 99px; transition: width .4s; }
+  .bar > b { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--bad); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--text); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; min-height: 44px; }
+  button.primary { background: var(--water); border-color: var(--water); color: #fff; width: 100%; }
+  button.stop { background: var(--bad); border-color: var(--bad); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent); height: 44px; }
+  .thr { font-weight: 700; min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+  .chart-box { position: relative; height: 260px; }
+  #err { min-height: 1.4em; color: var(--bad); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🌱 Garden</h1>
+    <span id="badge" class="badge" role="status">Connecting…</span>
+  </header>
+
+  <div id="alerts" aria-live="polite"></div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Soil moisture</h2>
+      <div class="big"><span id="moisture">--</span><small>%</small></div>
+      <div class="bar" title="Moisture; red line = dry threshold"><i id="mbar" style="width:0"></i><b id="tmark" style="left:15%"></b></div>
+      <div class="muted">Waters automatically below <span id="thr2">--</span>%</div>
+    </section>
+
+    <section class="card">
+      <h2>Status</h2>
+      <dl>
+        <dt>Pump</dt><dd id="pump">--</dd>
+        <dt>Mode</dt><dd id="mode">--</dd>
+        <dt>Sensor</dt><dd id="fault">--</dd>
+        <dt>Lockout</dt><dd id="locked">--</dd>
+        <dt>Bursts in a row</dt><dd id="bursts">--</dd>
+        <dt>Raw ADC</dt><dd id="raw">--</dd>
+        <dt>Device uptime</dt><dd id="uptime">--</dd>
+        <dt>Last update</dt><dd id="age">--</dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>Controls</h2>
+      <div class="row">
+        <span>Mode</span>
+        <div class="seg" role="group" aria-label="Mode">
+          <button id="m-auto" data-mode="auto" aria-pressed="false">Auto</button>
+          <button id="m-manual" data-mode="manual" aria-pressed="false">Manual</button>
+        </div>
+      </div>
+      <div class="row">
+        <label for="thr">Dry threshold</label>
+        <input id="thr" type="range" min="5" max="60" step="1" value="15">
+        <span class="thr" id="thrv">--%</span>
+      </div>
+      <button id="water" class="primary">💧 Water now</button>
+      <p class="muted" id="waterhint">Manual mode only. The ESP32 stops a manual run after 10 s.</p>
+      <div id="err" role="alert"></div>
+    </section>
+
+    <section class="card wide">
+      <div class="row" style="justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0">History</h2>
+        <div class="seg" role="group" aria-label="Range">
+          <button data-range="24h" aria-pressed="true">24 h</button>
+          <button data-range="7d" aria-pressed="false">7 d</button>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chart" aria-label="Moisture and pump history"></canvas></div>
+    </section>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let snap = null, clockOffset = 0;
+
+// ---------- Live state ----------
+const es = new EventSource('/events');
+es.onmessage = e => {
+  snap = JSON.parse(e.data);
+  clockOffset = Date.now() - snap.now; // tolerate phone/server clock skew
+  render();
+};
+es.onerror = () => { snap && (snap.broker = false); render(); };
+setInterval(render, 1000); // re-check staleness even if no messages arrive
+
+function isOnline() {
+  return !!(snap && snap.state && snap.status === 'online' && snap.broker !== false && es.readyState === 1
+    && Date.now() - clockOffset - snap.at < 30000);
+}
+
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
+function fmtAge(ms) {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : new Date(Date.now() - ms).toLocaleString();
+}
+
+function render() {
+  const s = snap && snap.state, on = isOnline();
+  const badge = $('badge');
+  badge.textContent = !snap ? 'Connecting…' : on ? 'Online' : 'Offline';
+  badge.className = 'badge' + (on ? ' on' : '');
+
+  const alerts = [];
+  if (snap && !on) alerts.push(['warn', snap.broker === false || es.readyState !== 1
+    ? 'Lost connection to the server. Reconnecting…'
+    : 'Device offline: no data in the last 30 s. Controls are disabled.']);
+  if (s && s.locked) alerts.push(['bad', '⚠ Safety lockout: soil still dry after 5 bursts. Check the pump and water supply, then press the reset button on the ESP32.']);
+  if (s && s.fault) alerts.push(['bad', '⚠ Sensor fault: the moisture reading is invalid, so the pump is blocked. Check the sensor wiring.']);
+  $('alerts').innerHTML = alerts.map(([c, t]) => `<div class="alert ${c}">${t}</div>`).join('');
+
+  if (s) {
+    $('moisture').textContent = s.moisture;
+    $('mbar').style.width = Math.max(0, Math.min(100, s.moisture)) + '%';
+    $('tmark').style.left = s.threshold + '%';
+    $('thr2').textContent = s.threshold;
+    $('pump').textContent = s.pump ? '💧 ON' : 'Off';
+    $('mode').textContent = s.auto ? 'Auto' : 'Manual';
+    $('fault').textContent = s.fault ? 'FAULT' : 'OK';
+    $('locked').textContent = s.locked ? 'LOCKED' : 'No';
+    $('bursts').textContent = s.bursts;
+    $('raw').textContent = s.raw;
+    $('uptime').textContent = fmtUptime(s.uptime);
+    $('age').textContent = fmtAge(Date.now() - clockOffset - snap.at);
+    $('m-auto').setAttribute('aria-pressed', !!s.auto);
+    $('m-manual').setAttribute('aria-pressed', !s.auto);
+    if (document.activeElement !== $('thr') && !thrPending) { $('thr').value = s.threshold; $('thrv').textContent = s.threshold + '%'; }
+  }
+
+  const canWater = on && !s.auto && !s.fault && !s.locked;
+  const stopMode = !!(s && s.pump && !s.auto); // manual run in progress -> button stops it
+  const w = $('water');
+  w.disabled = stopMode ? !on : !canWater;
+  w.textContent = stopMode ? '■ Stop pump' : '💧 Water now';
+  w.classList.toggle('stop', stopMode);
+  $('waterhint').textContent = !on ? 'Device offline.' : s.locked ? 'Blocked by safety lockout.' : s.fault ? 'Blocked by sensor fault.'
+    : s.auto ? 'Switch to Manual mode to water by hand.' : 'The ESP32 stops a manual run after 10 s.';
+  for (const id of ['m-auto', 'm-manual', 'thr']) $(id).disabled = !on;
+}
+
+// ---------- Commands ----------
+async function send(name, value) {
+  $('err').textContent = '';
+  try {
+    const r = await fetch('/api/cmd/' + name, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }),
+    });
+    if (!r.ok) $('err').textContent = (await r.json().catch(() => ({}))).error || `Error ${r.status}`;
+  } catch { $('err').textContent = 'Network error'; }
+}
+for (const b of document.querySelectorAll('[data-mode]')) b.onclick = () => send('mode', b.dataset.mode);
+$('water').onclick = () => send('pump', snap.state.pump && !snap.state.auto ? 'off' : 'on');
+let thrPending = false;
+$('thr').oninput = e => { $('thrv').textContent = e.target.value + '%'; };
+$('thr').onchange = async e => {
+  thrPending = true;
+  await send('threshold', +e.target.value);
+  setTimeout(() => { thrPending = false; }, 6000); // wait for the ESP32 to echo the new value
+};
+
+// ---------- History chart ----------
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let range = '24h';
+const chart = new Chart($('chart'), {
+  data: { datasets: [
+    { type: 'line', label: 'Moisture %', data: [], borderColor: css('--accent'), backgroundColor: css('--accent'),
+      pointRadius: 0, borderWidth: 2, tension: .25, spanGaps: false, yAxisID: 'y' },
+    { type: 'line', label: 'Pump on', data: [], stepped: true, fill: true, pointRadius: 0, borderWidth: 0,
+      backgroundColor: css('--water') + '55', yAxisID: 'y' },
+  ] },
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: { type: 'linear', ticks: { color: css('--muted'), maxTicksLimit: 7,
+        callback: v => new Date(v).toLocaleString([], range === '24h' ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', day: 'numeric' }) },
+        grid: { color: css('--line') } },
+      y: { min: 0, max: 100, ticks: { color: css('--muted'), callback: v => v + '%' }, grid: { color: css('--line') } },
+    },
+    plugins: {
+      legend: { labels: { color: css('--text'), boxWidth: 12 } },
+      tooltip: { callbacks: {
+        title: items => new Date(items[0].parsed.x).toLocaleString(),
+        label: c => c.datasetIndex ? (c.parsed.y ? 'Pump ran' : 'Pump off') : `Moisture ${c.parsed.y}%`,
+      } },
+    },
+  },
+});
+
+async function loadHistory() {
+  try {
+    const rows = await (await fetch('/api/history?range=' + range)).json();
+    const gap = (range === '24h' ? 60 : 600) * 3 * 1000; // break the line where the device was offline
+    const m = [];
+    rows.forEach((r, i) => {
+      if (i && r.t * 1000 - rows[i - 1].t * 1000 > gap) m.push({ x: r.t * 1000 - 1, y: null });
+      m.push({ x: r.t * 1000, y: r.moisture });
+    });
+    chart.data.datasets[0].data = m;
+    chart.data.datasets[1].data = rows.map(r => ({ x: r.t * 1000, y: r.pump ? 100 : 0 }));
+    chart.options.scales.x.min = Date.now() - (range === '24h' ? 86400e3 : 604800e3);
+    chart.options.scales.x.max = Date.now();
+    chart.update();
+  } catch { /* keep the last chart */ }
+}
+for (const b of document.querySelectorAll('[data-range]')) b.onclick = () => {
+  range = b.dataset.range;
+  for (const o of document.querySelectorAll('[data-range]')) o.setAttribute('aria-pressed', o === b);
+  loadHistory();
+};
+loadHistory();
+setInterval(loadHistory, 60000);
+render();
+</script>
+</body>
+</html>
