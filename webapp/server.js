@@ -115,7 +115,8 @@ const online = () => status === 'online' && Date.now() - stateAt < STALE_MS;
 
 const broker = mqtt.connect(env.MQTT_URL || 'mqtt://localhost:1883', {
   username: env.MQTT_USER, password: env.MQTT_PASS,
-  clientId: 'garden-webapp', reconnectPeriod: 5000,
+  // Unique per process: two instances with one ID would keep kicking each other off the broker.
+  clientId: `garden-webapp-${randomBytes(3).toString('hex')}`, reconnectPeriod: 5000,
 });
 broker.on('connect', () => { broker.subscribe(['garden/state', 'garden/status'], { qos: 1 }); broadcast(); });
 broker.on('close', broadcast);
@@ -143,7 +144,7 @@ const loggedIn = req => AUTH_DISABLED || validSession(req.headers.cookie?.match(
 
 app.addHook('onRequest', async (req, reply) => {
   const route = req.routeOptions.url;
-  if (route === '/login' || route === '/logout' || loggedIn(req)) return;
+  if (route === '/login' || route === '/logout' || route === '/ui.css' || loggedIn(req)) return;
   if (req.method === 'GET' && route === '/') return reply.redirect('/login');
   return reply.code(401).send({ error: 'login required' });
 });
@@ -169,8 +170,9 @@ app.post('/logout', (req, reply) => {
 });
 
 const page = name => readFileSync(new URL(`./public/${name}`, import.meta.url));
-const indexHtml = page('index.html'), loginHtml = page('login.html');
+const indexHtml = page('index.html'), loginHtml = page('login.html'), uiCss = page('ui.css');
 app.get('/', (req, reply) => reply.type('text/html; charset=utf-8').send(indexHtml));
+app.get('/ui.css', (req, reply) => reply.type('text/css; charset=utf-8').header('Cache-Control', 'no-cache').send(uiCss));
 app.get('/login', (req, reply) => loggedIn(req) ? reply.redirect('/') : reply.type('text/html; charset=utf-8').send(loginHtml));
 
 app.get('/events', (req, reply) => {

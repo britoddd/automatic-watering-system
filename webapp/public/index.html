@@ -5,120 +5,170 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Garden</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+<script>
+  // Theme before first paint: saved choice, else the system setting.
+  (function () {
+    let t = null;
+    try { t = localStorage.getItem('theme'); } catch (e) {}
+    if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/ui.css">
 <style>
-  :root {
-    --bg: #f4f6f3; --card: #fff; --text: #1d2b1f; --muted: #6b776d; --line: #e2e7e1;
-    --accent: #2f8f4e; --water: #2a7fd4; --warn-bg: #fff4d6; --warn: #8a5a00;
-    --bad-bg: #fde4e1; --bad: #a3271b; --off: #8a918b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #121613; --card: #1b211c; --text: #e4ebe5; --muted: #95a197; --line: #2c342d;
-      --accent: #4cbb6d; --water: #5aa6f0; --warn-bg: #3a2f12; --warn: #f2c14e;
-      --bad-bg: #3d1a16; --bad: #ff8a7a; --off: #6d756e;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 960px; margin: 0 auto; padding: 16px; }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  h1 { font-size: 1.3rem; margin: 0; }
-  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-  .badge { padding: 4px 10px; border-radius: 99px; font-size: .85rem; font-weight: 600; background: var(--line); color: var(--off); white-space: nowrap; }
-  .badge.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-  .alert { padding: 10px 14px; border-radius: 10px; margin-bottom: 10px; font-weight: 500; }
-  .alert.bad { background: var(--bad-bg); color: var(--bad); }
-  .alert.warn { background: var(--warn-bg); color: var(--warn); }
-  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
-  .wide { grid-column: 1 / -1; }
-  .big { font-size: 3rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-  .big small { font-size: 1.2rem; color: var(--muted); font-weight: 500; }
-  .bar { height: 10px; background: var(--line); border-radius: 99px; margin: 14px 0 6px; position: relative; overflow: hidden; }
-  .bar > i { position: absolute; inset: 0 auto 0 0; background: var(--water); border-radius: 99px; transition: width .4s; }
-  .bar > b { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--bad); }
-  dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
-  dt { color: var(--muted); }
-  dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .muted { color: var(--muted); font-size: .85rem; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--text); }
-  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-  button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; min-height: 44px; }
-  button.primary { background: var(--water); border-color: var(--water); color: #fff; width: 100%; }
-  button.stop { background: var(--bad); border-color: var(--bad); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent); height: 44px; }
-  .thr { font-weight: 700; min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
-  .chart-box { position: relative; height: 260px; }
-  #err { min-height: 1.4em; color: var(--bad); font-size: .9rem; }
+  header { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--background) 90%, transparent); backdrop-filter: blur(8px); }
+  .bar { max-width: 1120px; margin: 0 auto; height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 8px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; margin-right: auto; }
+  .brand .icon { width: 20px; height: 20px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 16px; }
+  .page-title h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.025em; margin: 0; }
+  .page-title p { margin: 4px 0 0; }
+  #alerts { display: grid; gap: 12px; }
+  #alerts:empty { display: none; }
+  .stats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .lower { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 1024px) { .lower { grid-template-columns: 1fr 2fr; } }
+  .field { display: grid; gap: 12px; }
+  .field-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .chart-box { position: relative; height: 280px; }
+  .footer-line { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+  .thr-wrap { position: relative; width: 100%; }
+  .thr-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--destructive); }
+  #err { color: var(--destructive); font-size: 14px; margin: 0; }
+  #err:empty { display: none; }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>🌱 Garden</h1>
-    <div class="row" style="margin:0;flex-wrap:nowrap">
-      <span id="badge" class="badge" role="status">Connecting…</span>
-      <button id="logout" style="min-height:32px;padding:4px 12px;font-size:.85rem">Log out</button>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg>
+      Garden
     </div>
-  </header>
+    <span id="badge" class="badge" role="status"><span class="dot" id="dot"></span><span id="badgeText">Connecting…</span></span>
+    <button id="theme" class="btn btn-ghost btn-icon" aria-label="Toggle theme" title="Toggle theme">
+      <svg class="icon i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      <svg class="icon i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+    </button>
+    <button id="logout" class="btn btn-outline" aria-label="Log out">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+      <span>Log out</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="page-title">
+    <h1>Dashboard</h1>
+    <p class="muted">Live soil moisture and pump control for the ESP32 watering system.</p>
+  </div>
 
   <div id="alerts" aria-live="polite"></div>
 
-  <div class="grid">
-    <section class="card">
-      <h2>Soil moisture</h2>
-      <div class="big"><span id="moisture">--</span><small>%</small></div>
-      <div class="bar" title="Moisture; red line = dry threshold"><i id="mbar" style="width:0"></i><b id="tmark" style="left:15%"></b></div>
-      <div class="muted">Waters automatically below <span id="thr2">--</span>%</div>
-    </section>
+  <section class="stats">
+    <div class="card stat">
+      <div class="card-header">
+        <p class="card-description">Soil moisture</p>
+        <p class="card-title"><span id="moisture">--</span>%</p>
+        <div class="card-action"><span class="badge" id="thrBadge">Threshold --%</span></div>
+      </div>
+      <div class="card-footer" style="width:100%">
+        <div class="thr-wrap" title="Red line = dry threshold">
+          <div class="progress"><i id="mbar" style="width:0"></i></div>
+          <span class="thr-mark" id="tmark" style="left:15%"></span>
+        </div>
+        <span class="muted">Waters automatically below <span id="thr2">--</span>%</span>
+      </div>
+    </div>
 
-    <section class="card">
-      <h2>Status</h2>
-      <dl>
-        <dt>Pump</dt><dd id="pump">--</dd>
-        <dt>Mode</dt><dd id="mode">--</dd>
-        <dt>Sensor</dt><dd id="fault">--</dd>
-        <dt>Lockout</dt><dd id="locked">--</dd>
-        <dt>Bursts in a row</dt><dd id="bursts">--</dd>
-        <dt>Raw ADC</dt><dd id="raw">--</dd>
-        <dt>Device uptime</dt><dd id="uptime">--</dd>
-        <dt>Last update</dt><dd id="age">--</dd>
-      </dl>
-    </section>
+    <div class="card stat">
+      <div class="card-header">
+        <p class="card-description">Pump</p>
+        <p class="card-title" id="pump">--</p>
+        <div class="card-action"><span class="badge" id="pumpBadge">--</span></div>
+      </div>
+      <div class="card-footer">
+        <span class="footer-line">Bursts in a row: <span class="tabular" id="bursts">--</span></span>
+        <span class="muted">Lockout after 5 bursts with dry soil</span>
+      </div>
+    </div>
 
-    <section class="card">
-      <h2>Controls</h2>
-      <div class="row">
-        <span>Mode</span>
-        <div class="seg" role="group" aria-label="Mode">
-          <button id="m-auto" data-mode="auto" aria-pressed="false">Auto</button>
-          <button id="m-manual" data-mode="manual" aria-pressed="false">Manual</button>
+    <div class="card stat">
+      <div class="card-header">
+        <p class="card-description">Mode</p>
+        <p class="card-title" id="mode">--</p>
+        <div class="card-action"><span class="badge" id="sensorBadge">Sensor --</span></div>
+      </div>
+      <div class="card-footer">
+        <span class="footer-line">Lockout: <span id="locked">--</span></span>
+        <span class="muted">Raw ADC <span class="tabular" id="raw">--</span></span>
+      </div>
+    </div>
+
+    <div class="card stat">
+      <div class="card-header">
+        <p class="card-description">Last update</p>
+        <p class="card-title" id="age">--</p>
+      </div>
+      <div class="card-footer">
+        <span class="footer-line">Device uptime <span class="tabular" id="uptime">--</span></span>
+        <span class="muted">Device sends data every 5 s</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="lower">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Controls</h2>
+        <p class="card-description" style="grid-column:1">Changes are sent to the ESP32 over MQTT.</p>
+      </div>
+      <div class="card-content field" style="gap:24px">
+        <div class="field-row">
+          <div>
+            <label class="label" for="auto">Automatic watering</label>
+            <p class="card-description" style="margin-top:6px">Off = manual mode</p>
+          </div>
+          <input type="checkbox" role="switch" class="switch" id="auto">
+        </div>
+        <hr class="separator">
+        <div class="field">
+          <div class="field-row">
+            <label class="label" for="thr">Dry threshold</label>
+            <span class="tabular muted" id="thrv">--%</span>
+          </div>
+          <input id="thr" class="slider" type="range" min="5" max="60" step="1" value="15">
+        </div>
+        <hr class="separator">
+        <div class="field">
+          <button id="water" class="btn btn-block">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg>
+            <span id="waterText">Water now</span>
+          </button>
+          <p class="card-description" id="waterhint">The ESP32 stops a manual run after 10 s.</p>
+          <p id="err" role="alert"></p>
         </div>
       </div>
-      <div class="row">
-        <label for="thr">Dry threshold</label>
-        <input id="thr" type="range" min="5" max="60" step="1" value="15">
-        <span class="thr" id="thrv">--%</span>
-      </div>
-      <button id="water" class="primary">💧 Water now</button>
-      <p class="muted" id="waterhint">Manual mode only. The ESP32 stops a manual run after 10 s.</p>
-      <div id="err" role="alert"></div>
-    </section>
+    </div>
 
-    <section class="card wide">
-      <div class="row" style="justify-content:space-between;margin-bottom:6px">
-        <h2 style="margin:0">History</h2>
-        <div class="seg" role="group" aria-label="Range">
-          <button data-range="24h" aria-pressed="true">24 h</button>
-          <button data-range="7d" aria-pressed="false">7 d</button>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">History</h2>
+          <p class="card-description" style="margin-top:6px">Soil moisture and pump runs</p>
+        </div>
+        <div class="tabs-list" role="tablist" aria-label="Range">
+          <button class="tab" role="tab" data-range="24h" aria-selected="true">24 hours</button>
+          <button class="tab" role="tab" data-range="7d" aria-selected="false">7 days</button>
         </div>
       </div>
-      <div class="chart-box"><canvas id="chart" aria-label="Moisture and pump history"></canvas></div>
-    </section>
-  </div>
+      <div class="card-content">
+        <div class="chart-box"><canvas id="chart" aria-label="Moisture and pump history"></canvas></div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -126,6 +176,21 @@
 const $ = id => document.getElementById(id);
 let snap = null, clockOffset = 0, es;
 const toLogin = () => location.replace('/login');
+// After you change a control, ignore the device's old value until it echoes the new one.
+const holdUntil = {};
+const held = k => (holdUntil[k] || 0) > Date.now();
+
+const ICON = {
+  alert: '<svg class="icon" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+  info: '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
+};
+
+// ---------- Theme ----------
+$('theme').onclick = () => {
+  const dark = document.documentElement.classList.toggle('dark');
+  try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+  styleChart();
+};
 
 // ---------- Live state ----------
 function connect() {
@@ -136,7 +201,6 @@ function connect() {
     render();
   };
   es.onerror = async () => {
-    snap && (snap.broker = false);
     render();
     if (es.readyState !== EventSource.CLOSED) return; // browser retries by itself
     // Closed for good (401 or a 502 during a server restart): find out which, then retry or log in.
@@ -162,48 +226,56 @@ function fmtAge(ms) {
   const s = Math.round(ms / 1000);
   return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : new Date(Date.now() - ms).toLocaleString();
 }
+const alertHtml = (kind, title, text) =>
+  `<div class="alert${kind === 'bad' ? ' alert-destructive' : ''}" role="alert">${kind === 'bad' ? ICON.alert : ICON.info}` +
+  `<div class="alert-title">${title}</div><div class="alert-description">${text}</div></div>`;
+const setSlider = v => { $('thr').value = v; $('thrv').textContent = v + '%'; $('thr').style.setProperty('--p', (v - 5) / 55 * 100 + '%'); };
 
 function render() {
   const s = snap && snap.state, on = isOnline();
-  const badge = $('badge');
-  badge.textContent = !snap ? 'Connecting…' : on ? 'Online' : 'Offline';
-  badge.className = 'badge' + (on ? ' on' : '');
+  $('dot').className = 'dot' + (on ? ' on' : '');
+  $('badgeText').textContent = !snap ? 'Connecting…' : on ? 'Online' : 'Offline';
 
   const alerts = [];
-  if (snap && !on) alerts.push(['warn', snap.broker === false || es.readyState !== 1
-    ? 'Lost connection to the server. Reconnecting…'
-    : 'Device offline: no data in the last 30 s. Controls are disabled.']);
-  if (s && s.locked) alerts.push(['bad', '⚠ Safety lockout: soil still dry after 5 bursts. Check the pump and water supply, then press the reset button on the ESP32.']);
-  if (s && s.fault) alerts.push(['bad', '⚠ Sensor fault: the moisture reading is invalid, so the pump is blocked. Check the sensor wiring.']);
-  $('alerts').innerHTML = alerts.map(([c, t]) => `<div class="alert ${c}">${t}</div>`).join('');
+  if (snap && !on) alerts.push(
+    es.readyState !== 1 ? alertHtml('info', 'Reconnecting', 'Lost connection to the server. Trying again…')
+    : snap.broker === false ? alertHtml('info', 'Broker unreachable', 'The server cannot reach the MQTT broker. Retrying every 5 seconds…')
+    : alertHtml('info', 'Device offline', 'No data from the ESP32 in the last 30 seconds. Controls are disabled.'));
+  if (s && s.locked) alerts.push(alertHtml('bad', 'Safety lockout', 'Soil is still dry after 5 bursts. Check the pump and water supply, then press the reset button on the ESP32.'));
+  if (s && s.fault) alerts.push(alertHtml('bad', 'Sensor fault', 'The moisture reading is invalid, so the pump is blocked. Check the sensor wiring.'));
+  const html = alerts.join('');
+  if ($('alerts').innerHTML !== html) $('alerts').innerHTML = html;
 
   if (s) {
-    $('moisture').textContent = s.moisture;
+    $('moisture').textContent = s.fault ? '--' : s.moisture;
     $('mbar').style.width = Math.max(0, Math.min(100, s.moisture)) + '%';
     $('tmark').style.left = s.threshold + '%';
     $('thr2').textContent = s.threshold;
-    $('pump').textContent = s.pump ? '💧 ON' : 'Off';
-    $('mode').textContent = s.auto ? 'Auto' : 'Manual';
-    $('fault').textContent = s.fault ? 'FAULT' : 'OK';
+    $('thrBadge').textContent = `Threshold ${s.threshold}%`;
+    $('pump').textContent = s.pump ? 'Running' : 'Off';
+    $('pumpBadge').textContent = s.pump ? (s.auto ? 'Auto burst' : 'Manual run') : 'Idle';
+    $('pumpBadge').className = 'badge' + (s.pump ? ' badge-secondary' : '');
+    $('mode').textContent = s.auto ? 'Automatic' : 'Manual';
+    $('sensorBadge').textContent = s.fault ? 'Sensor fault' : 'Sensor OK';
+    $('sensorBadge').className = 'badge' + (s.fault ? ' badge-destructive' : '');
     $('locked').textContent = s.locked ? 'LOCKED' : 'No';
     $('bursts').textContent = s.bursts;
     $('raw').textContent = s.raw;
     $('uptime').textContent = fmtUptime(s.uptime);
     $('age').textContent = fmtAge(Date.now() - clockOffset - snap.at);
-    $('m-auto').setAttribute('aria-pressed', !!s.auto);
-    $('m-manual').setAttribute('aria-pressed', !s.auto);
-    if (document.activeElement !== $('thr') && !thrPending) { $('thr').value = s.threshold; $('thrv').textContent = s.threshold + '%'; }
+    if (!held('mode')) $('auto').checked = !!s.auto;
+    if (document.activeElement !== $('thr') && !held('threshold')) setSlider(s.threshold);
   }
 
   const canWater = on && !s.auto && !s.fault && !s.locked;
   const stopMode = !!(s && s.pump && !s.auto); // manual run in progress -> button stops it
   const w = $('water');
   w.disabled = stopMode ? !on : !canWater;
-  w.textContent = stopMode ? '■ Stop pump' : '💧 Water now';
-  w.classList.toggle('stop', stopMode);
+  $('waterText').textContent = stopMode ? 'Stop pump' : 'Water now';
+  w.classList.toggle('btn-destructive', stopMode);
   $('waterhint').textContent = !on ? 'Device offline.' : s.locked ? 'Blocked by safety lockout.' : s.fault ? 'Blocked by sensor fault.'
-    : s.auto ? 'Switch to Manual mode to water by hand.' : 'The ESP32 stops a manual run after 10 s.';
-  for (const id of ['m-auto', 'm-manual', 'thr']) $(id).disabled = !on;
+    : s.auto ? 'Turn off automatic watering to water by hand.' : 'The ESP32 stops a manual run after 10 s.';
+  $('auto').disabled = $('thr').disabled = !on;
 }
 
 // ---------- Commands ----------
@@ -215,48 +287,93 @@ async function send(name, value) {
     });
     if (r.status === 401) return toLogin();
     if (!r.ok) $('err').textContent = (await r.json().catch(() => ({}))).error || `Error ${r.status}`;
-  } catch { $('err').textContent = 'Network error'; }
+    return r.ok;
+  } catch { $('err').textContent = 'Network error'; return false; }
 }
-for (const b of document.querySelectorAll('[data-mode]')) b.onclick = () => send('mode', b.dataset.mode);
+$('auto').onchange = async e => {
+  holdUntil.mode = Date.now() + 5000;
+  if (!await send('mode', e.target.checked ? 'auto' : 'manual')) holdUntil.mode = 0;
+  render();
+};
 $('water').onclick = () => send('pump', snap.state.pump && !snap.state.auto ? 'off' : 'on');
-let thrPending = false;
-$('thr').oninput = e => { $('thrv').textContent = e.target.value + '%'; };
+$('thr').oninput = e => setSlider(+e.target.value);
 $('thr').onchange = async e => {
-  thrPending = true;
-  await send('threshold', +e.target.value);
-  setTimeout(() => { thrPending = false; }, 6000); // wait for the ESP32 to echo the new value
+  holdUntil.threshold = Date.now() + 6000;
+  if (!await send('threshold', +e.target.value)) holdUntil.threshold = 0;
 };
 
 // ---------- History chart ----------
-const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-let range = '24h';
-const chart = new Chart($('chart'), {
-  data: { datasets: [
-    { type: 'line', label: 'Moisture %', data: [], borderColor: css('--accent'), backgroundColor: css('--accent'),
-      pointRadius: 0, borderWidth: 2, tension: .25, spanGaps: false, yAxisID: 'y' },
-    { type: 'line', label: 'Pump on', data: [], stepped: true, fill: true, pointRadius: 0, borderWidth: 0,
-      backgroundColor: css('--water') + '55', yAxisID: 'y' },
-  ] },
-  options: {
-    responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
-    interaction: { mode: 'index', intersect: false },
-    scales: {
-      x: { type: 'linear', ticks: { color: css('--muted'), maxTicksLimit: 7,
-        callback: v => new Date(v).toLocaleString([], range === '24h' ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', day: 'numeric' }) },
-        grid: { color: css('--line') } },
-      y: { min: 0, max: 100, ticks: { color: css('--muted'), callback: v => v + '%' }, grid: { color: css('--line') } },
+let range = '24h', chart = null, legendColors = [];
+const token = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+// Resolve a CSS color (oklch included) to rgba() via a 1x1 canvas, so Chart.js can use it.
+const probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+function rgba(cssColor, alpha = 1) {
+  probe.clearRect(0, 0, 1, 1); probe.fillStyle = cssColor; probe.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
+  return `rgba(${r},${g},${b},${(a / 255) * alpha})`;
+}
+const gradient = (color, top, bottom) => ctx => {
+  const { chart: c } = ctx, area = c.chartArea;
+  if (!area) return null;
+  const g = c.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, rgba(color, top)); g.addColorStop(1, rgba(color, bottom));
+  return g;
+};
+
+function styleChart() {
+  if (!chart) return;
+  const fg = token('--foreground'), muted = token('--muted-foreground'), border = token('--border');
+  const c1 = token('--chart-2'), c2 = token('--chart-1');
+  const [m, p] = chart.data.datasets;
+  legendColors = [rgba(c1), rgba(c2)]; // solid swatches; the legend can't draw the gradients
+  m.borderColor = rgba(c1); m.backgroundColor = gradient(c1, .35, .02);
+  p.backgroundColor = gradient(c2, .45, .1);
+  const sc = chart.options.scales;
+  sc.x.ticks.color = sc.y.ticks.color = rgba(muted);
+  sc.y.grid.color = rgba(border);
+  const tt = chart.options.plugins.tooltip;
+  tt.backgroundColor = rgba(token('--card')); tt.borderColor = rgba(border);
+  tt.titleColor = rgba(fg); tt.bodyColor = rgba(muted);
+  chart.options.plugins.legend.labels.color = rgba(fg);
+  chart.update('none');
+}
+
+if (window.Chart) {
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 12;
+  chart = new Chart($('chart'), {
+    data: { datasets: [
+      { type: 'line', label: 'Moisture %', data: [], fill: 'origin', pointRadius: 0, pointHoverRadius: 3,
+        borderWidth: 2, tension: .35, spanGaps: false },
+      { type: 'line', label: 'Pump ran', data: [], stepped: true, fill: 'origin', pointRadius: 0, borderWidth: 0 },
+    ] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { type: 'linear', grid: { display: false }, border: { display: false },
+          ticks: { maxTicksLimit: innerWidth < 640 ? 4 : 6, maxRotation: 0, autoSkipPadding: 16, padding: 8,
+            callback: v => new Date(v).toLocaleString([], range === '24h' ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', day: 'numeric' }) } },
+        y: { min: 0, max: 100, border: { display: false, dash: [3, 3] }, grid: { drawTicks: false },
+          ticks: { stepSize: 25, padding: 8, callback: v => v + '%' } },
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'rectRounded', boxWidth: 8, boxHeight: 8, padding: 16,
+          generateLabels: c => Chart.defaults.plugins.legend.labels.generateLabels(c)
+            .map((l, i) => ({ ...l, fillStyle: legendColors[i], strokeStyle: legendColors[i], lineWidth: 0 })) } },
+        tooltip: { borderWidth: 1, padding: 10, cornerRadius: 8, boxPadding: 4, usePointStyle: true,
+          callbacks: {
+            title: items => new Date(items[0].parsed.x).toLocaleString(),
+            label: c => c.datasetIndex ? (c.parsed.y ? ' Pump ran' : ' Pump off') : ` Moisture ${c.parsed.y}%`,
+          } },
+      },
     },
-    plugins: {
-      legend: { labels: { color: css('--text'), boxWidth: 12 } },
-      tooltip: { callbacks: {
-        title: items => new Date(items[0].parsed.x).toLocaleString(),
-        label: c => c.datasetIndex ? (c.parsed.y ? 'Pump ran' : 'Pump off') : `Moisture ${c.parsed.y}%`,
-      } },
-    },
-  },
-});
+  });
+  styleChart();
+}
 
 async function loadHistory() {
+  if (!chart) return;
   try {
     const res = await fetch('/api/history?range=' + range);
     if (res.status === 401) return toLogin();
@@ -271,12 +388,12 @@ async function loadHistory() {
     chart.data.datasets[1].data = rows.map(r => ({ x: r.t * 1000, y: r.pump ? 100 : 0 }));
     chart.options.scales.x.min = Date.now() - (range === '24h' ? 86400e3 : 604800e3);
     chart.options.scales.x.max = Date.now();
-    chart.update();
+    chart.update('none');
   } catch { /* keep the last chart */ }
 }
 for (const b of document.querySelectorAll('[data-range]')) b.onclick = () => {
   range = b.dataset.range;
-  for (const o of document.querySelectorAll('[data-range]')) o.setAttribute('aria-pressed', o === b);
+  for (const o of document.querySelectorAll('[data-range]')) o.setAttribute('aria-selected', o === b);
   loadHistory();
 };
 loadHistory();
