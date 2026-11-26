@@ -94,11 +94,17 @@ db.exec(`CREATE TABLE IF NOT EXISTS history (
   moisture INTEGER, raw INTEGER,
   pump INTEGER             -- 1 if the pump was on at any point in this minute
 )`);
+// Water tank level (%), NULL while no level sensor is fitted. Added to existing databases once.
+if (!db.prepare("SELECT 1 FROM pragma_table_info('history') WHERE name = 'water'").get()) {
+  db.exec('ALTER TABLE history ADD COLUMN water INTEGER');
+}
 // Upsert every state message into its minute bucket; max() keeps short pump bursts visible.
-const upsert = db.prepare(`INSERT INTO history (ts, moisture, raw, pump) VALUES (?, ?, ?, ?)
-  ON CONFLICT(ts) DO UPDATE SET moisture = excluded.moisture, raw = excluded.raw, pump = max(pump, excluded.pump)`);
+const upsert = db.prepare(`INSERT INTO history (ts, moisture, raw, pump, water) VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(ts) DO UPDATE SET moisture = excluded.moisture, raw = excluded.raw,
+    pump = max(pump, excluded.pump), water = excluded.water`);
 const prune = db.prepare('DELETE FROM history WHERE ts < ?');
-const historyQuery = db.prepare(`SELECT (ts / @bucket) * @bucket AS t, round(avg(moisture)) AS moisture, max(pump) AS pump
+const historyQuery = db.prepare(`SELECT (ts / @bucket) * @bucket AS t, round(avg(moisture)) AS moisture,
+  max(pump) AS pump, round(avg(water)) AS water
   FROM history WHERE ts >= @since GROUP BY t ORDER BY t`);
 const RANGES = { '24h': { secs: 86_400, bucket: 60 }, '7d': { secs: 604_800, bucket: 600 } };
 
@@ -107,7 +113,7 @@ pruneOld();
 setInterval(pruneOld, 3_600_000).unref();
 
 // ---------- MQTT ----------
-let state = null, stateAt = 0, status = 'offline';
+let state = null, stateAt = 0, status = 'offline', stateMsgs = 0, reconnects = 0;
 const clients = new Set();
 const snapshot = () => JSON.stringify({ state, status, at: stateAt, now: Date.now(), broker: broker.connected });
 const broadcast = () => { const msg = `data: ${snapshot()}\n\n`; for (const c of clients) c.write(msg); };
@@ -120,6 +126,7 @@ const broker = mqtt.connect(env.MQTT_URL || 'mqtt://localhost:1883', {
 });
 broker.on('connect', () => { broker.subscribe(['garden/state', 'garden/status'], { qos: 1 }); broadcast(); });
 broker.on('close', broadcast);
+broker.on('reconnect', () => reconnects++);
 broker.on('error', e => console.error('mqtt:', e.message));
 broker.on('message', (topic, buf) => {
   const text = buf.toString();
@@ -128,8 +135,9 @@ broker.on('message', (topic, buf) => {
     let s;
     try { s = JSON.parse(text); } catch { return console.warn('bad garden/state payload'); }
     if (typeof s?.moisture !== 'number') return;
-    state = s; stateAt = Date.now();
-    upsert.run(Math.floor(stateAt / 60_000) * 60, s.moisture, s.raw | 0, s.pump ? 1 : 0);
+    state = s; stateAt = Date.now(); stateMsgs++;
+    upsert.run(Math.floor(stateAt / 60_000) * 60, s.moisture, s.raw | 0, s.pump ? 1 : 0,
+      typeof s.water === 'number' ? s.water : null);
   }
   broadcast();
 });
@@ -189,6 +197,18 @@ app.get('/events', (req, reply) => {
 // Keep-alive comment so Cloudflare (100 s idle timeout) and nginx keep the stream open.
 setInterval(() => { for (const c of clients) c.write(': ping\n\n'); }, 25_000).unref();
 
+// Nerd mode: server-side numbers behind the dashboard. Polled every 5 s only while nerd mode is on.
+const historyStats = db.prepare('SELECT count(*) AS rows, min(ts) AS oldest FROM history');
+app.get('/api/nerd', () => {
+  const mem = process.memoryUsage();
+  return {
+    node: process.version, uptime: Math.round(process.uptime()), rss: mem.rss, heap: mem.heapUsed,
+    sseClients: clients.size, mqtt: broker.connected, clientId: broker.options.clientId, reconnects,
+    statusTopic: status, stateMsgs, ...historyStats.get(),
+    dbBytes: db.pragma('page_count', { simple: true }) * db.pragma('page_size', { simple: true }),
+  };
+});
+
 app.get('/api/history', (req, reply) => {
   const r = RANGES[req.query.range] || RANGES['24h'];
   return historyQuery.all({ bucket: r.bucket, since: Math.floor(Date.now() / 1000) - r.secs });
@@ -205,6 +225,7 @@ app.post('/api/cmd/:name', async (req, reply) => {
     if (state.auto) return reply.code(409).send({ error: 'switch to manual mode first' });
     if (state.fault) return reply.code(409).send({ error: 'sensor fault, pump blocked' });
     if (state.locked) return reply.code(409).send({ error: 'safety lockout, reset the ESP32' });
+    if (state.tankLow) return reply.code(409).send({ error: 'water tank low, refill it first' });
   }
   await broker.publishAsync(`garden/cmd/${req.params.name}`, value, { qos: 1, retain: cmd.retain });
   return { ok: true };

@@ -8,16 +8,28 @@
 <script>
   // Theme before first paint: saved choice, else the system setting.
   (function () {
-    let t = null;
-    try { t = localStorage.getItem('theme'); } catch (e) {}
+    let t = null, n = null;
+    try { t = localStorage.getItem('theme'); n = localStorage.getItem('nerd'); } catch (e) {}
     if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+    if (n === '1') document.documentElement.classList.add('nerd-on');
   })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/ui.css">
 <style>
+  /* Nerd mode: everything marked .nerd only shows while <html> has .nerd-on */
+  html:not(.nerd-on) .nerd { display: none !important; }
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .nerd-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .nerd-grid { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .nerd-h { margin: 0 0 8px; font-size: 12px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: var(--muted-foreground); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+  .kv dt { color: var(--muted-foreground); }
+  .kv dd { margin: 0; text-align: right; font: 12.5px/1.6 "Geist Mono", ui-monospace, monospace; overflow-wrap: anywhere; }
+  .code { margin: 0; padding: 12px; border-radius: calc(var(--radius) - 2px); background: var(--muted);
+    font: 12px/1.6 "Geist Mono", ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
   header { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--background) 90%, transparent); backdrop-filter: blur(8px); }
   .bar { max-width: 1120px; margin: 0 auto; height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 8px; }
   .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; margin-right: auto; }
@@ -28,6 +40,10 @@
   #alerts { display: grid; gap: 12px; }
   #alerts:empty { display: none; }
   .stats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  /* With the tank card there are five: one row on wide screens, titles under the badges */
+  @media (min-width: 1024px) { .stats.five { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+  .stats.five .card.stat .card-title { grid-column: 1 / -1; font-size: 1.5rem; line-height: 2rem; }
+  .stats.five .card.stat .card-action { grid-row: 1; }
   .lower { display: grid; gap: 16px; grid-template-columns: 1fr; }
   @media (min-width: 1024px) { .lower { grid-template-columns: 1fr 2fr; } }
   .field { display: grid; gap: 12px; }
@@ -60,14 +76,20 @@
 </header>
 
 <main>
-  <div class="page-title">
-    <h1>Dashboard</h1>
-    <p class="muted">Live soil moisture and pump control for the ESP32 watering system.</p>
+  <div class="page-head">
+    <div class="page-title">
+      <h1>Dashboard</h1>
+      <p class="muted nerd">Live soil moisture and pump control for the ESP32 watering system.</p>
+    </div>
+    <label class="label nerd-toggle" for="nerd">
+      <input type="checkbox" role="switch" class="switch" id="nerd">
+      Nerd mode
+    </label>
   </div>
 
   <div id="alerts" aria-live="polite"></div>
 
-  <section class="stats">
+  <section class="stats" id="stats">
     <div class="card stat">
       <div class="card-header">
         <p class="card-description">Soil moisture</p>
@@ -79,7 +101,7 @@
           <div class="progress"><i id="mbar" style="width:0"></i></div>
           <span class="thr-mark" id="tmark" style="left:15%"></span>
         </div>
-        <span class="muted">Waters automatically below <span id="thr2">--</span>%</span>
+        <span class="muted nerd">Waters automatically below <span id="thr2">--</span>%</span>
       </div>
     </div>
 
@@ -89,7 +111,7 @@
         <p class="card-title" id="pump">--</p>
         <div class="card-action"><span class="badge" id="pumpBadge">--</span></div>
       </div>
-      <div class="card-footer">
+      <div class="card-footer nerd">
         <span class="footer-line">Bursts in a row: <span class="tabular" id="bursts">--</span></span>
         <span class="muted">Lockout after 5 bursts with dry soil</span>
       </div>
@@ -101,7 +123,7 @@
         <p class="card-title" id="mode">--</p>
         <div class="card-action"><span class="badge" id="sensorBadge">Sensor --</span></div>
       </div>
-      <div class="card-footer">
+      <div class="card-footer nerd">
         <span class="footer-line">Lockout: <span id="locked">--</span></span>
         <span class="muted">Raw ADC <span class="tabular" id="raw">--</span></span>
       </div>
@@ -112,9 +134,22 @@
         <p class="card-description">Last update</p>
         <p class="card-title" id="age">--</p>
       </div>
-      <div class="card-footer">
+      <div class="card-footer nerd">
         <span class="footer-line">Device uptime <span class="tabular" id="uptime">--</span></span>
         <span class="muted">Device sends data every 5 s</span>
+      </div>
+    </div>
+
+    <!-- Shown only once garden/state contains "water" (level sensor enabled in the firmware) -->
+    <div class="card stat" id="tankCard" hidden>
+      <div class="card-header">
+        <p class="card-description">Water tank</p>
+        <p class="card-title"><span id="tankPct">--</span>%</p>
+        <div class="card-action"><span class="badge" id="tankBadge">--</span></div>
+      </div>
+      <div class="card-footer" style="width:100%">
+        <div class="progress"><i id="wbar" style="width:0"></i></div>
+        <span class="muted nerd">Raw ADC <span class="tabular" id="waterRaw">--</span> · pump blocked while low</span>
       </div>
     </div>
   </section>
@@ -123,13 +158,13 @@
     <div class="card">
       <div class="card-header">
         <h2 class="card-title">Controls</h2>
-        <p class="card-description" style="grid-column:1">Changes are sent to the ESP32 over MQTT.</p>
+        <p class="card-description nerd" style="grid-column:1">Changes are sent to the ESP32 over MQTT.</p>
       </div>
       <div class="card-content field" style="gap:24px">
         <div class="field-row">
           <div>
             <label class="label" for="auto">Automatic watering</label>
-            <p class="card-description" style="margin-top:6px">Off = manual mode</p>
+            <p class="card-description nerd" style="margin-top:6px">Off = manual mode</p>
           </div>
           <input type="checkbox" role="switch" class="switch" id="auto">
         </div>
@@ -157,7 +192,7 @@
       <div class="card-header">
         <div>
           <h2 class="card-title">History</h2>
-          <p class="card-description" style="margin-top:6px">Soil moisture and pump runs</p>
+          <p class="card-description nerd" style="margin-top:6px">Soil moisture and pump runs</p>
         </div>
         <div class="tabs-list" role="tablist" aria-label="Range">
           <button class="tab" role="tab" data-range="24h" aria-selected="true">24 hours</button>
@@ -167,6 +202,24 @@
       <div class="card-content">
         <div class="chart-box"><canvas id="chart" aria-label="Moisture and pump history"></canvas></div>
       </div>
+    </div>
+  </section>
+
+  <section class="card nerd" aria-label="Nerd stats">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">Nerd stats</h2>
+        <p class="card-description" style="margin-top:6px">The raw numbers behind this page. Server stats refresh every 5 s.</p>
+      </div>
+    </div>
+    <div class="card-content nerd-grid">
+      <div><h3 class="nerd-h">Device · garden/state</h3><dl class="kv" id="kvDevice"></dl></div>
+      <div><h3 class="nerd-h">Connection · this browser</h3><dl class="kv" id="kvConn"></dl></div>
+      <div><h3 class="nerd-h">Server · garden-web</h3><dl class="kv" id="kvServer"></dl></div>
+    </div>
+    <div class="card-content">
+      <h3 class="nerd-h">Last garden/state payload</h3>
+      <pre class="code" id="rawJson">—</pre>
     </div>
   </section>
 </main>
@@ -198,6 +251,8 @@ function connect() {
   es.onmessage = e => {
     snap = JSON.parse(e.data);
     clockOffset = Date.now() - snap.now; // tolerate phone/server clock skew
+    sseMsgs++;
+    if (snap.at && snap.at !== stateTimes[stateTimes.length - 1]) stateTimes = [...stateTimes, snap.at].slice(-20);
     render();
   };
   es.onerror = async () => {
@@ -243,6 +298,7 @@ function render() {
     : alertHtml('info', 'Device offline', 'No data from the ESP32 in the last 30 seconds. Controls are disabled.'));
   if (s && s.locked) alerts.push(alertHtml('bad', 'Safety lockout', 'Soil is still dry after 5 bursts. Check the pump and water supply, then press the reset button on the ESP32.'));
   if (s && s.fault) alerts.push(alertHtml('bad', 'Sensor fault', 'The moisture reading is invalid, so the pump is blocked. Check the sensor wiring.'));
+  if (s && s.tankLow) alerts.push(alertHtml('bad', 'Water tank low', 'Refill the tank. The pump stays blocked until the level is back up.'));
   const html = alerts.join('');
   if ($('alerts').innerHTML !== html) $('alerts').innerHTML = html;
 
@@ -263,20 +319,89 @@ function render() {
     $('raw').textContent = s.raw;
     $('uptime').textContent = fmtUptime(s.uptime);
     $('age').textContent = fmtAge(Date.now() - clockOffset - snap.at);
+    const hasTank = typeof s.water === 'number';
+    $('tankCard').hidden = !hasTank;
+    $('stats').classList.toggle('five', hasTank);
+    if (hasTank) {
+      $('tankPct').textContent = s.water;
+      $('wbar').style.width = Math.max(0, Math.min(100, s.water)) + '%';
+      $('waterRaw').textContent = s.waterRaw;
+      $('tankBadge').textContent = s.tankLow ? 'Low' : 'OK';
+      $('tankBadge').className = 'badge' + (s.tankLow ? ' badge-destructive' : '');
+    }
     if (!held('mode')) $('auto').checked = !!s.auto;
     if (document.activeElement !== $('thr') && !held('threshold')) setSlider(s.threshold);
   }
 
-  const canWater = on && !s.auto && !s.fault && !s.locked;
+  const canWater = on && !s.auto && !s.fault && !s.locked && !s.tankLow;
   const stopMode = !!(s && s.pump && !s.auto); // manual run in progress -> button stops it
   const w = $('water');
   w.disabled = stopMode ? !on : !canWater;
   $('waterText').textContent = stopMode ? 'Stop pump' : 'Water now';
   w.classList.toggle('btn-destructive', stopMode);
-  $('waterhint').textContent = !on ? 'Device offline.' : s.locked ? 'Blocked by safety lockout.' : s.fault ? 'Blocked by sensor fault.'
-    : s.auto ? 'Turn off automatic watering to water by hand.' : 'The ESP32 stops a manual run after 10 s.';
+  const blocked = !on ? 'Device offline.' : s.locked ? 'Blocked by safety lockout.' : s.fault ? 'Blocked by sensor fault.'
+    : s.tankLow ? 'Blocked: the water tank is low.' : s.auto ? 'Turn off automatic watering to water by hand.' : '';
+  $('waterhint').textContent = blocked || 'The ESP32 stops a manual run after 10 s.';
+  $('waterhint').classList.toggle('nerd', !blocked); // reasons always show; the generic note is nerd-only
   $('auto').disabled = $('thr').disabled = !on;
+  if (nerdOn()) renderNerd();
 }
+
+// ---------- Nerd mode ----------
+const nerdOn = () => document.documentElement.classList.contains('nerd-on');
+let nerdServer = null, sseMsgs = 0, stateTimes = [];
+const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const kv = (id, rows) => {
+  const html = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v ?? '—')}</dd>`).join('');
+  if ($(id).innerHTML !== html) $(id).innerHTML = html;
+};
+const bytes = n => n == null ? '—' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+const secs = n => n == null ? '—' : `${n} s (${fmtUptime(n)})`;
+
+function renderNerd() {
+  const s = snap && snap.state, sv = nerdServer;
+  const age = snap && snap.at ? Date.now() - clockOffset - snap.at : null;
+  const gaps = stateTimes.slice(1).map((t, i) => t - stateTimes[i]);
+  const avgGap = gaps.length ? (gaps.reduce((a, b) => a + b, 0) / gaps.length / 1000).toFixed(2) + ' s' : '—';
+  kv('kvDevice', s ? [
+    ['moisture', s.moisture + ' %'], ['raw ADC', s.raw], ['threshold', s.threshold + ' %'],
+    ['pump', s.pump], ['auto', s.auto], ['fault', s.fault], ['locked', s.locked], ['bursts', s.bursts],
+    ...(typeof s.water === 'number' ? [['water', s.water + ' %'], ['water raw ADC', s.waterRaw], ['tankLow', s.tankLow]] : []),
+    ['uptime', secs(s.uptime)], ['garden/status', snap.status], ['state age', age == null ? '—' : age + ' ms'],
+  ] : [['state', 'no garden/state received yet']]);
+  kv('kvConn', [
+    ['event stream', ['connecting', 'open', 'closed'][es.readyState]],
+    ['SSE messages', sseMsgs], ['avg state interval', avgGap],
+    ['clock offset', Math.round(clockOffset) + ' ms'], ['online rule', 'status online + state < 30 s'],
+  ]);
+  kv('kvServer', sv ? [
+    ['node', sv.node], ['uptime', secs(sv.uptime)], ['memory (RSS)', bytes(sv.rss)], ['heap used', bytes(sv.heap)],
+    ['MQTT', sv.mqtt ? 'connected' : 'disconnected'], ['MQTT client ID', sv.clientId], ['MQTT reconnects', sv.reconnects],
+    ['state msgs received', sv.stateMsgs], ['browsers connected', sv.sseClients],
+    ['history rows', sv.rows], ['oldest row', sv.oldest ? new Date(sv.oldest * 1000).toLocaleString() : '—'],
+    ['database size', bytes(sv.dbBytes)],
+  ] : [['server', 'loading…']]);
+  const raw = s ? JSON.stringify(s, null, 2) : '—';
+  if ($('rawJson').textContent !== raw) $('rawJson').textContent = raw;
+}
+
+async function loadNerd() {
+  if (!nerdOn()) return;
+  try {
+    const r = await fetch('/api/nerd');
+    if (r.status === 401) return toLogin();
+    nerdServer = await r.json();
+    renderNerd();
+  } catch { /* keep the last numbers */ }
+}
+setInterval(loadNerd, 5000);
+
+$('nerd').checked = nerdOn();
+$('nerd').onchange = e => {
+  document.documentElement.classList.toggle('nerd-on', e.target.checked);
+  try { localStorage.setItem('nerd', e.target.checked ? '1' : '0'); } catch (err) {}
+  if (e.target.checked) { renderNerd(); loadNerd(); }
+};
 
 // ---------- Commands ----------
 async function send(name, value) {
@@ -303,7 +428,7 @@ $('thr').onchange = async e => {
 };
 
 // ---------- History chart ----------
-let range = '24h', chart = null, legendColors = [];
+let range = '24h', chart = null, legendColors = [], historyHasWater = false;
 const token = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 // Resolve a CSS color (oklch included) to rgba() via a 1x1 canvas, so Chart.js can use it.
 const probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
@@ -323,10 +448,11 @@ const gradient = (color, top, bottom) => ctx => {
 function styleChart() {
   if (!chart) return;
   const fg = token('--foreground'), muted = token('--muted-foreground'), border = token('--border');
-  const c1 = token('--chart-2'), c2 = token('--chart-1');
-  const [m, p] = chart.data.datasets;
-  legendColors = [rgba(c1), rgba(c2)]; // solid swatches; the legend can't draw the gradients
+  const c1 = token('--chart-2'), c2 = token('--chart-1'), c3 = token('--chart-3');
+  const [m, p, w] = chart.data.datasets;
+  legendColors = [rgba(c1), rgba(c2), rgba(c3)]; // solid swatches; the legend can't draw the gradients
   m.borderColor = rgba(c1); m.backgroundColor = gradient(c1, .35, .02);
+  w.borderColor = rgba(c3);
   p.backgroundColor = gradient(c2, .45, .1);
   const sc = chart.options.scales;
   sc.x.ticks.color = sc.y.ticks.color = rgba(muted);
@@ -346,6 +472,8 @@ if (window.Chart) {
       { type: 'line', label: 'Moisture %', data: [], fill: 'origin', pointRadius: 0, pointHoverRadius: 3,
         borderWidth: 2, tension: .35, spanGaps: false },
       { type: 'line', label: 'Pump ran', data: [], stepped: true, fill: 'origin', pointRadius: 0, borderWidth: 0 },
+      { type: 'line', label: 'Water tank %', data: [], fill: false, pointRadius: 0, pointHoverRadius: 3,
+        borderWidth: 2, borderDash: [5, 4], tension: .35, spanGaps: false },
     ] },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
@@ -359,12 +487,14 @@ if (window.Chart) {
       },
       plugins: {
         legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'rectRounded', boxWidth: 8, boxHeight: 8, padding: 16,
+          filter: item => item.datasetIndex !== 2 || historyHasWater, // no tank sensor -> no tank legend
           generateLabels: c => Chart.defaults.plugins.legend.labels.generateLabels(c)
             .map((l, i) => ({ ...l, fillStyle: legendColors[i], strokeStyle: legendColors[i], lineWidth: 0 })) } },
         tooltip: { borderWidth: 1, padding: 10, cornerRadius: 8, boxPadding: 4, usePointStyle: true,
           callbacks: {
             title: items => new Date(items[0].parsed.x).toLocaleString(),
-            label: c => c.datasetIndex ? (c.parsed.y ? ' Pump ran' : ' Pump off') : ` Moisture ${c.parsed.y}%`,
+            label: c => c.datasetIndex === 2 ? ` Water tank ${c.parsed.y}%`
+              : c.datasetIndex ? (c.parsed.y ? ' Pump ran' : ' Pump off') : ` Moisture ${c.parsed.y}%`,
           } },
       },
     },
@@ -386,6 +516,8 @@ async function loadHistory() {
     });
     chart.data.datasets[0].data = m;
     chart.data.datasets[1].data = rows.map(r => ({ x: r.t * 1000, y: r.pump ? 100 : 0 }));
+    historyHasWater = rows.some(r => r.water != null);
+    chart.data.datasets[2].data = historyHasWater ? rows.map(r => ({ x: r.t * 1000, y: r.water })) : [];
     chart.options.scales.x.min = Date.now() - (range === '24h' ? 86400e3 : 604800e3);
     chart.options.scales.x.max = Date.now();
     chart.update('none');
