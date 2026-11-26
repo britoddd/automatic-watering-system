@@ -59,7 +59,10 @@
 <main>
   <header>
     <h1>🌱 Garden</h1>
-    <span id="badge" class="badge" role="status">Connecting…</span>
+    <div class="row" style="margin:0;flex-wrap:nowrap">
+      <span id="badge" class="badge" role="status">Connecting…</span>
+      <button id="logout" style="min-height:32px;padding:4px 12px;font-size:.85rem">Log out</button>
+    </div>
   </header>
 
   <div id="alerts" aria-live="polite"></div>
@@ -121,16 +124,29 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-let snap = null, clockOffset = 0;
+let snap = null, clockOffset = 0, es;
+const toLogin = () => location.replace('/login');
 
 // ---------- Live state ----------
-const es = new EventSource('/events');
-es.onmessage = e => {
-  snap = JSON.parse(e.data);
-  clockOffset = Date.now() - snap.now; // tolerate phone/server clock skew
-  render();
-};
-es.onerror = () => { snap && (snap.broker = false); render(); };
+function connect() {
+  es = new EventSource('/events');
+  es.onmessage = e => {
+    snap = JSON.parse(e.data);
+    clockOffset = Date.now() - snap.now; // tolerate phone/server clock skew
+    render();
+  };
+  es.onerror = async () => {
+    snap && (snap.broker = false);
+    render();
+    if (es.readyState !== EventSource.CLOSED) return; // browser retries by itself
+    // Closed for good (401 or a 502 during a server restart): find out which, then retry or log in.
+    const r = await fetch('/api/history?range=24h').catch(() => null);
+    if (r && r.status === 401) return toLogin();
+    setTimeout(connect, 3000);
+  };
+}
+connect();
+$('logout').onclick = async () => { await fetch('/logout', { method: 'POST' }).catch(() => {}); toLogin(); };
 setInterval(render, 1000); // re-check staleness even if no messages arrive
 
 function isOnline() {
@@ -197,6 +213,7 @@ async function send(name, value) {
     const r = await fetch('/api/cmd/' + name, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }),
     });
+    if (r.status === 401) return toLogin();
     if (!r.ok) $('err').textContent = (await r.json().catch(() => ({}))).error || `Error ${r.status}`;
   } catch { $('err').textContent = 'Network error'; }
 }
@@ -241,7 +258,9 @@ const chart = new Chart($('chart'), {
 
 async function loadHistory() {
   try {
-    const rows = await (await fetch('/api/history?range=' + range)).json();
+    const res = await fetch('/api/history?range=' + range);
+    if (res.status === 401) return toLogin();
+    const rows = await res.json();
     const gap = (range === '24h' ? 60 : 600) * 3 * 1000; // break the line where the device was offline
     const m = [];
     rows.forEach((r, i) => {

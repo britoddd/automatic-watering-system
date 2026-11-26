@@ -1,9 +1,11 @@
 // Garden dashboard backend: one MQTT connection, SQLite history, SSE to browsers.
 import { readFileSync } from 'node:fs';
+import { scryptSync, randomBytes, timingSafeEqual, createHmac } from 'node:crypto';
 import assert from 'node:assert/strict';
 
 const env = process.env;
 const STALE_MS = 30_000;
+const SESSION_DAYS = 30;
 
 // ---------- Command validation (server is the trust boundary) ----------
 const COMMANDS = {
@@ -11,6 +13,29 @@ const COMMANDS = {
   threshold: { retain: true,  parse: v => /^\d{1,2}$/.test(String(v)) && +v >= 5 && +v <= 60 ? String(+v) : null },
   pump:      { retain: false, parse: v => (v === 'on' || v === 'off') ? v : null }, // NEVER retain pump
 };
+
+// ---------- Login: scrypt password hash + HMAC-signed session cookie ----------
+// Hash format "scrypt:<salt hex>:<hash hex>" (no "$", so .env and systemd read it literally).
+function hashPassword(pw) {
+  const salt = randomBytes(16);
+  return `scrypt:${salt.toString('hex')}:${scryptSync(pw, salt, 64).toString('hex')}`;
+}
+function checkPassword(pw, stored) {
+  const [alg, salt, hash] = String(stored).split(':');
+  if (alg !== 'scrypt' || !salt || !hash) return false;
+  const want = Buffer.from(hash, 'hex');
+  const got = scryptSync(String(pw ?? ''), Buffer.from(salt, 'hex'), want.length);
+  return want.length > 0 && timingSafeEqual(got, want);
+}
+const sign = (data, secret) => createHmac('sha256', secret).update(data).digest('base64url');
+// ponytail: stateless session (expiry + HMAC). No per-session logout; change SESSION_SECRET to log out every device.
+const makeSession = (secret, days = SESSION_DAYS) => { const exp = String(Date.now() + days * 86_400_000); return `${exp}.${sign(exp, secret)}`; };
+function validSession(token, secret) {
+  const [exp, mac] = String(token || '').split('.');
+  if (!exp || !mac) return false;
+  const want = Buffer.from(sign(exp, secret)), got = Buffer.from(mac);
+  return got.length === want.length && timingSafeEqual(got, want) && Number(exp) > Date.now();
+}
 
 if (process.argv[2] === '--selftest') {
   const p = (c, v) => COMMANDS[c].parse(v);
@@ -26,14 +51,40 @@ if (process.argv[2] === '--selftest') {
   assert.equal(p('threshold', '1e1'), null);
   assert.equal(p('threshold', -10), null);
   assert.equal(COMMANDS.pump.retain, false);
+
+  const h = hashPassword('correct horse');
+  assert.equal(checkPassword('correct horse', h), true);
+  assert.equal(checkPassword('wrong', h), false);
+  assert.equal(checkPassword(undefined, h), false);
+  assert.equal(checkPassword('x', 'garbage'), false);
+  const s = makeSession('k'.repeat(32));
+  assert.equal(validSession(s, 'k'.repeat(32)), true);
+  assert.equal(validSession(s, 'z'.repeat(32)), false);                 // other secret
+  assert.equal(validSession(s.replace(/^\d/, '9'), 'k'.repeat(32)), false); // tampered expiry
+  assert.equal(validSession(makeSession('k'.repeat(32), -1), 'k'.repeat(32)), false); // expired
+  assert.equal(validSession('', 'k'.repeat(32)), false);
   console.log('selftest ok');
+  process.exit(0);
+}
+
+if (process.argv[2] === '--hash-password') {
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const pw = await rl.question('New admin password (min 10 chars): ');
+  rl.close();
+  if (pw.length < 10) { console.error('Too short.'); process.exit(1); }
+  console.log(`ADMIN_PASS_HASH=${hashPassword(pw)}`);
   process.exit(0);
 }
 
 const { default: Fastify } = await import('fastify');
 const { default: mqtt } = await import('mqtt');
 const { default: Database } = await import('better-sqlite3');
-const { createRemoteJWKSet, jwtVerify } = await import('jose');
+
+const AUTH_DISABLED = env.AUTH_DISABLED === '1';
+if (AUTH_DISABLED) console.warn('WARNING: AUTH_DISABLED=1, no login check. Local testing only.');
+else if (!env.ADMIN_USER || !env.ADMIN_PASS_HASH?.startsWith('scrypt:') || (env.SESSION_SECRET || '').length < 32)
+  throw new Error('Set ADMIN_USER, ADMIN_PASS_HASH (npm run hash-password) and SESSION_SECRET (32+ chars), or AUTH_DISABLED=1 for local tests');
 
 // ---------- SQLite history: one row per minute ----------
 const db = new Database(env.DB_PATH || 'garden.db');
@@ -86,21 +137,41 @@ broker.on('message', (topic, buf) => {
 const app = Fastify({ logger: { level: 'warn' }, bodyLimit: 1024 });
 app.removeContentTypeParser('text/plain'); // only JSON bodies -> cross-site form posts get 415 (CSRF guard)
 
-// Cloudflare Access: verify the signed JWT on every request so hitting the origin IP directly gets nothing.
-if (env.AUTH_DISABLED === '1') {
-  console.warn('WARNING: AUTH_DISABLED=1, no login check. Local testing only.');
-} else {
-  if (!env.CF_TEAM_DOMAIN || !env.CF_AUD) throw new Error('Set CF_TEAM_DOMAIN and CF_AUD (or AUTH_DISABLED=1 for local tests)');
-  const issuer = `https://${env.CF_TEAM_DOMAIN}`;
-  const jwks = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
-  app.addHook('onRequest', async (req, reply) => {
-    try { await jwtVerify(req.headers['cf-access-jwt-assertion'] || '', jwks, { issuer, audience: env.CF_AUD }); }
-    catch { return reply.code(403).send('Forbidden'); }
-  });
-}
+const COOKIE = 'garden_session';
+const cookieAttrs = 'Path=/; HttpOnly; Secure; SameSite=Strict';
+const loggedIn = req => AUTH_DISABLED || validSession(req.headers.cookie?.match(/(?:^|;\s*)garden_session=([^;]+)/)?.[1], env.SESSION_SECRET);
 
-const indexHtml = readFileSync(new URL('./public/index.html', import.meta.url));
+app.addHook('onRequest', async (req, reply) => {
+  const route = req.routeOptions.url;
+  if (route === '/login' || route === '/logout' || loggedIn(req)) return;
+  if (req.method === 'GET' && route === '/') return reply.redirect('/login');
+  return reply.code(401).send({ error: 'login required' });
+});
+
+// ponytail: global failed-login limit, not per IP (behind Cloudflare the IP is the edge's).
+// Someone could block *new* logins for 15 min; existing sessions keep working.
+let fails = [];
+app.post('/login', async (req, reply) => {
+  fails = fails.filter(t => Date.now() - t < 15 * 60_000);
+  if (fails.length >= 10) return reply.code(429).send({ error: 'Too many attempts. Try again in 15 minutes.' });
+  const { username, password } = req.body || {};
+  const passOk = checkPassword(password, env.ADMIN_PASS_HASH); // always run scrypt: no timing hint about the username
+  if (!(passOk && username === env.ADMIN_USER)) {
+    fails.push(Date.now());
+    return reply.code(401).send({ error: 'Wrong username or password' });
+  }
+  reply.header('Set-Cookie', `${COOKIE}=${makeSession(env.SESSION_SECRET)}; Max-Age=${SESSION_DAYS * 86_400}; ${cookieAttrs}`);
+  return { ok: true };
+});
+app.post('/logout', (req, reply) => {
+  reply.header('Set-Cookie', `${COOKIE}=; Max-Age=0; ${cookieAttrs}`);
+  return { ok: true };
+});
+
+const page = name => readFileSync(new URL(`./public/${name}`, import.meta.url));
+const indexHtml = page('index.html'), loginHtml = page('login.html');
 app.get('/', (req, reply) => reply.type('text/html; charset=utf-8').send(indexHtml));
+app.get('/login', (req, reply) => loggedIn(req) ? reply.redirect('/') : reply.type('text/html; charset=utf-8').send(loginHtml));
 
 app.get('/events', (req, reply) => {
   reply.hijack();

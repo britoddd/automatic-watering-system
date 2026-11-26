@@ -1,0 +1,26 @@
+[Unit]
+Description=Garden watering dashboard
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+# Runs straight from the deploy user's clone (~/garden-web), updated by deploy-garden.sh.
+User=deploy
+WorkingDirectory=/home/deploy/garden-web/webapp
+EnvironmentFile=/etc/garden-web/garden-web.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+
+# /var/lib/garden-web is created for the service and holds the SQLite DB.
+StateDirectory=garden-web
+NoNewPrivileges=yes
+ProtectSystem=strict
+# The app can read its code in /home but never modify it.
+ProtectHome=read-only
+PrivateTmp=yes
+# Keep it small next to the Factorio server.
+MemoryMax=200M
+
+[Install]
+WantedBy=multi-user.target
