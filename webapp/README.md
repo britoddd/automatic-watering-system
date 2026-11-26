@@ -191,6 +191,21 @@ mosquitto_sub -h localhost -u webapp -P YOUR_WEBAPP_PASSWORD -t 'garden/cmd/#' -
 | 14c | 10 wrong passwords in a row | `Too many attempts. Try again in 15 minutes.` A device that's already logged in keeps working. |
 | 15 | `cd ~/garden-web/webapp && npm test` | `selftest ok` (input validation, password hash, session cookie). |
 
+Water tank level (optional sensor). Fake state that includes the water fields:
+
+```bash
+tank() {  # tank <water %> <tankLow 0/1>   (manual mode, soil 42 %)
+  mosquitto_pub $ESP -r -t garden/state -m "{\"moisture\":42,\"raw\":1800,\"pump\":0,\"auto\":0,\"fault\":0,\"bursts\":0,\"threshold\":15,\"locked\":0,\"uptime\":$SECONDS,\"water\":$1,\"waterRaw\":$(( $1 * 18 )),\"tankLow\":$2}"
+}
+```
+
+| # | Do | Expect |
+|---|---|---|
+| 16 | `state 42 0 0 0 0 0` (no water fields) | No Water tank card, no tank legend in the chart: the page looks as without a sensor. |
+| 17 | Loop `tank 70 0` | Fifth card **Water tank 70 %** with badge **OK**; after a few minutes a dashed "Water tank %" line in the chart. |
+| 18 | Loop `tank 8 1` | Red **Water tank low** alert, badge **Low**, Water now disabled ("Blocked: the water tank is low."). |
+| 19 | While 18 runs: `curl ... /api/cmd/pump` with `{"value":"on"}` (local dev) | `409 water tank low, refill it first` |
+
 Input validation against the live server (local dev with `AUTH_DISABLED=1`):
 
 ```bash

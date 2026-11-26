@@ -73,6 +73,25 @@ const int DRY_VALUE = 2440;
 const int WET_VALUE = 240;
 const int SENSOR_FAULT_MARGIN = 400;
 
+// ---------------- Water tank level (analog level strip, optional) ----------------
+// Set WATER_LEVEL_ENABLED to true once the strip is wired. While false, none of this
+// runs and garden/state has no water fields (the dashboards hide the tank parts).
+//
+// Wiring: strip "+" -> WATER_LEVEL_POWER_PIN, "-" -> GND, "S" -> WATER_LEVEL_PIN.
+// The strip is powered only for the few milliseconds of each reading: a strip with
+// constant current through the water corrodes within weeks.
+// Mount it so its bottom end sits at the lowest level the pump may still draw from.
+const bool WATER_LEVEL_ENABLED   = false;
+const int  WATER_LEVEL_PIN       = 35;  // ADC1, input-only pin (fine for analog)
+const int  WATER_LEVEL_POWER_PIN = 25;  // 3.3 V from a GPIO keeps the signal inside the ADC range
+// Calibration (use CALIBRATION_MODE to see raw values on the Serial Monitor):
+const int  WATER_EMPTY_RAW = 0;         // raw reading with the strip out of the water
+const int  WATER_FULL_RAW  = 1800;      // raw reading with the strip submerged to its top mark
+// Below LOW the tank counts as empty and the pump is blocked (no dry running).
+// It unblocks only above OK, so a level hovering at the limit doesn't flap.
+const int  WATER_LOW_PERCENT = 15;
+const int  WATER_OK_PERCENT  = 25;
+
 // ---------------- Watering behaviour ----------------
 const unsigned long PUMP_ON_MS         = 3000UL;              // automatic watering burst
 const unsigned long MANUAL_MAX_RUN_MS  = 10000UL;             // manual safety cutoff
@@ -118,6 +137,11 @@ int rawReading = 0;
 int moisturePercent = 0;
 int wateringsInARow = 0;
 
+// Water tank (only used when WATER_LEVEL_ENABLED)
+int waterRaw = 0;
+int waterPercent = 0;
+bool tankLow = false;
+
 unsigned long pumpStartedAt = 0;
 unsigned long lastWateringTime = 0;
 unsigned long lastWiFiAttempt = 0;
@@ -145,6 +169,7 @@ button:disabled{background:#bbb}
 <div class="row"><span>Pump</span><span id="pump">-</span></div>
 <div class="row"><span>Mode</span><span id="mode">-</span></div>
 <div class="row"><span>Bursts in a row</span><span id="b">-</span></div>
+<div class="row" id="tr" style="display:none"><span>Water tank</span><span id="tank">-</span></div>
 <div class="row"><span>Router Wi-Fi</span><span id="wifi">-</span></div>
 <div class="row"><span>Internet (MQTT)</span><span id="mq">-</span></div>
 <div id="w" class="warn"></div>
@@ -179,8 +204,10 @@ function show(s){
  $('wifi').textContent=s.wifi?'Connected ('+s.ip+')':'Not connected';
  $('mq').textContent=s.mqtt?'Connected':'Offline';
  if(document.activeElement!==$('ts')){$('ts').value=s.threshold;$('tv').textContent=s.threshold;}
- $('bp').disabled=s.auto||s.fault||s.locked||s.pump;
+ if('water' in s){$('tr').style.display='';$('tank').textContent=s.water+'%'+(s.tankLow?' (LOW)':'');}
+ $('bp').disabled=s.auto||s.fault||s.locked||s.pump||s.tankLow;
  let w=[];
+ if(s.tankLow)w.push('WATER TANK LOW: refill it. The pump is blocked until then.');
  if(s.locked)w.push('SAFETY LOCKOUT: soil still dry after several bursts. Check water, tubing and sensor, then reset the ESP32.');
  if(s.fault)w.push('SENSOR FAULT: check sensor wiring or calibration.');
  if(Date.now()<msgUntil)w.push(msg);
@@ -250,6 +277,44 @@ bool sensorLooksValid(int raw) {
          raw <= (DRY_VALUE + SENSOR_FAULT_MARGIN);
 }
 
+// Power the strip, average a few samples, power it off again.
+// A disconnected strip reads about 0, which counts as "low": the safe side.
+void readWaterLevel() {
+  digitalWrite(WATER_LEVEL_POWER_PIN, HIGH);
+  delay(10);  // let the reading settle
+  long total = 0;
+  for (int i = 0; i < 10; i++) {
+    total += analogRead(WATER_LEVEL_PIN);
+    delay(2);
+  }
+  digitalWrite(WATER_LEVEL_POWER_PIN, LOW);
+
+  waterRaw = (int)(total / 10);
+  if (WATER_FULL_RAW <= WATER_EMPTY_RAW) {  // bad calibration: stay on the safe side
+    waterPercent = 0;
+    tankLow = true;
+    stopPump();
+    return;
+  }
+  long p = (long)(waterRaw - WATER_EMPTY_RAW) * 100L / (long)(WATER_FULL_RAW - WATER_EMPTY_RAW);
+  waterPercent = (int)constrain(p, 0L, 100L);
+
+  bool wasLow = tankLow;
+  if (waterPercent <= WATER_LOW_PERCENT) tankLow = true;
+  else if (waterPercent > WATER_OK_PERCENT) tankLow = false;
+
+  Serial.print("Water tank raw: ");
+  Serial.print(waterRaw);
+  Serial.print(" | Level: ");
+  Serial.print(waterPercent);
+  Serial.println(tankLow ? "% (LOW)" : "%");
+
+  if (tankLow && !wasLow) {
+    Serial.println("WATER TANK LOW: pump blocked until the tank is refilled.");
+    stopPump();
+  }
+}
+
 // forWeb = true adds link status fields for the local page.
 void buildStateJson(char* buf, size_t len, bool forWeb) {
   int n = snprintf(buf, len,
@@ -258,6 +323,12 @@ void buildStateJson(char* buf, size_t len, bool forWeb) {
                    moisturePercent, rawReading, pumpRunning ? 1 : 0, autoMode ? 1 : 0,
                    sensorValid ? 0 : 1, wateringsInARow, dryThresholdPercent,
                    lockedOut ? 1 : 0, millis() / 1000UL);
+
+  // Water fields exist only with a sensor; their absence tells the dashboards to hide the tank.
+  if (WATER_LEVEL_ENABLED && n > 0 && (size_t)n < len) {
+    n += snprintf(buf + n, len - n, ",\"water\":%d,\"waterRaw\":%d,\"tankLow\":%d",
+                  waterPercent, waterRaw, tankLow ? 1 : 0);
+  }
 
   if (forWeb && n > 0 && (size_t)n < len) {
     bool wifiUp = (WiFi.status() == WL_CONNECTED);
@@ -321,6 +392,7 @@ void stopPump() {
 
 bool startPump(bool automaticWatering) {
   if (pumpRunning || lockedOut || !sensorValid) return false;
+  if (WATER_LEVEL_ENABLED && tankLow) return false;  // never run the pump dry
 
   pumpRunning = true;
   pumpWasAutomatic = automaticWatering;
@@ -345,6 +417,8 @@ void updatePumpSafety() {
 }
 
 void handleSensorAndAutomaticWatering() {
+  if (WATER_LEVEL_ENABLED) readWaterLevel();
+
   rawReading = readSensorRaw();
 
   Serial.print("Raw sensor reading: ");
@@ -394,6 +468,13 @@ void handleSensorAndAutomaticWatering() {
   }
 
   // Soil is below the configured threshold.
+  // An empty tank is not "the soil won't get wet": skip without counting
+  // toward the safety lockout, and water again once the tank is refilled.
+  if (WATER_LEVEL_ENABLED && tankLow) {
+    Serial.println("Soil is dry but the water tank is low; not watering.");
+    return;
+  }
+
   if (hasWatered && (millis() - lastWateringTime < SOAK_TIME_MS)) {
     Serial.println("Soil is dry; waiting for the previous watering to soak in.");
     return;
@@ -457,6 +538,11 @@ const char* handlePumpCommand(const char* msg) {
   if (!sensorValid || lockedOut) {
     Serial.println("Manual pump command rejected: sensor fault or safety lockout.");
     return "Rejected: sensor fault or safety lockout.";
+  }
+
+  if (WATER_LEVEL_ENABLED && tankLow) {
+    Serial.println("Manual pump command rejected: water tank low.");
+    return "Rejected: water tank low. Refill it first.";
   }
 
   if (!startPump(false)) {
@@ -724,6 +810,15 @@ void setup() {
 
   analogReadResolution(12); // ESP32 ADC: 0..4095
   pinMode(SENSOR_PIN, INPUT);
+
+  if (WATER_LEVEL_ENABLED) {
+    pinMode(WATER_LEVEL_POWER_PIN, OUTPUT);
+    digitalWrite(WATER_LEVEL_POWER_PIN, LOW);  // strip unpowered between readings
+    pinMode(WATER_LEVEL_PIN, INPUT);
+    if (WATER_FULL_RAW <= WATER_EMPTY_RAW) {
+      Serial.println("ERROR: WATER_FULL_RAW must be greater than WATER_EMPTY_RAW.");
+    }
+  }
 
   Serial.println();
   Serial.println("Automatic Plant Watering System (MQTT + hotspot) starting...");

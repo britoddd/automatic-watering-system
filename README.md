@@ -49,6 +49,7 @@ flowchart LR
 | Relay module IN | GPIO 26 (active-LOW by default: `RELAY_ACTIVE_LOW`) |
 | Relay module VCC / GND | Supply suitable for the relay module |
 | Pump | **Its own power supply**, switched through the relay contacts |
+| Water level strip "+" / "−" / "S" (optional) | GPIO 25 (powers it only while reading) / GND / GPIO 35 (ADC1). See [Water tank level](#water-tank-level-optional) |
 
 Notes:
 - **Flyback diode:** put one (1N4007 or 1N5819) across the pump terminals, stripe to +.
@@ -67,6 +68,32 @@ Notes:
 | `garden/cmd/pump` | → ESP32 | `on` / `off` (manual mode only) | **never** (a retained `on` would start the pump on every reconnect) |
 
 When mode or threshold is changed on the hotspot page, the ESP32 itself publishes the new value (retained) to the `cmd` topic, so the broker never undoes a local change.
+
+With the water level sensor enabled, `garden/state` also carries `"water":0-100,"waterRaw":int,"tankLow":0/1`. Without it, those fields are absent, and both dashboards hide everything tank-related.
+
+## Water tank level (optional)
+
+All the code for an **analog water level strip** is already in place and switched off. To add the sensor:
+
+1. **Wire it**: strip `+` → GPIO 25, `−` → GND, `S` → GPIO 35.
+   - The firmware powers the strip from GPIO 25 only for the ~30 ms of each reading. A strip with constant current through the water corrodes within weeks.
+   - The 3.3 V from the GPIO also keeps the signal inside the ESP32's ADC range.
+2. **Mount it** so its bottom end is at the lowest water level the pump may still draw from. The strip only measures its own length, so "0 %" means "the water no longer reaches the strip".
+3. **Turn it on**: in `watering_system_mqtt.ino` set `WATER_LEVEL_ENABLED = true`.
+4. **Calibrate**:
+   1. Set `CALIBRATION_MODE = true` and upload.
+   2. In the Serial Monitor, note `Water tank raw` with the strip out of the water: that's `WATER_EMPTY_RAW`.
+   3. Note it again with the strip submerged up to its top mark: that's `WATER_FULL_RAW`.
+   4. Enter both values, set `CALIBRATION_MODE = false`, and upload again.
+5. **Optional**: adjust `WATER_LOW_PERCENT` (default 15). The pump is blocked at or below it, and released again above `WATER_OK_PERCENT` (default 25).
+
+What it does once enabled:
+- **Pump protection:** below the low level, no pump run of any kind starts (automatic, manual, local page, web), and a running pump stops. This protects the pump from running dry.
+- **No false lockout:** an empty tank doesn't count toward the "5 bursts with dry soil" safety lockout. Automatic watering resumes by itself after a refill.
+- **Fail-safe:** a disconnected strip reads about 0, so it counts as "low" and the pump stays blocked.
+- **Dashboards:**
+  - The online dashboard shows a **Water tank** card, a red "Water tank low" alert, and a dashed tank line in the history chart. The level is stored with the history (the database column is added automatically).
+  - The hotspot page shows a "Water tank" row and a low-tank warning.
 
 ## Getting started
 
