@@ -11,10 +11,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up SSH
+        # Secrets go in through env vars (not pasted into the script), and any Windows
+        # line endings (\r) from copy-paste are stripped, since OpenSSH rejects them.
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null \
+            || { echo "::error::VPS_SSH_KEY is not a valid private key. Paste the whole file, BEGIN to END line."; exit 1; }
       - name: Deploy
-        run: ssh deploy@${{ secrets.VPS_HOST }} '~/deploy-garden.sh'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: ssh -o BatchMode=yes deploy@"$VPS_HOST" '~/deploy-garden.sh'
